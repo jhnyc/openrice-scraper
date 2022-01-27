@@ -72,6 +72,24 @@ def get_api_string(soup):
             api_string += f'{key}id={item}&'
     return api_string
 
+# Dictionary to map paymentId to method names
+pay_name = {
+    1: "Visa",
+    2: "Master",
+    3: "AE",
+    4: "Cash",
+    5: "UnionPay",
+    6: "Octopus",
+    7: "JCB",
+    21: "ApplePay",
+    22: "GooglePay",
+    23: "AliPay",
+    24: "WechatPay",
+    25: "AliPayHK",
+    26: "OpenricePay",
+    255: "Tap&Go"
+}
+
 # To trim the json object so that only important data remains
 def trim_json(result, attributes):
     output = {}
@@ -84,7 +102,7 @@ def trim_json(result, attributes):
                 output[attr] = {'lng':result['mapLongitude'], 'lat':result['mapLatitude']} 
                 continue
             if attr == 'poiHours' and len(result['poiHours']) > 1:
-                output[attr] = (result[attr][-1]['period1Start'],result[attr][-1]['period1End']) 
+                output[attr] = (result[attr][0]['period1Start'],result[attr][0]['period1End']) 
                 continue
             if attr == 'onlineBooking':
                 output[attr] = 1 if 'tmBookingWidget' in result.keys() else 0
@@ -92,6 +110,8 @@ def trim_json(result, attributes):
             if attr == 'district':
                 output[attr] = result['district']['name']
                 continue
+            if attr == 'paymentIds':
+                output[attr] = list(map(lambda x: pay_name[x] if x in pay_name.keys() else x, result[attr]))
             output[attr] = result[attr]
         except:
             pass
