@@ -2,66 +2,56 @@ import requests
 from bs4 import BeautifulSoup as bs
 import json
 import pandas as pd
+from multiprocess import Pool, cpu_count, set_start_method
+from functools import partial
+
 
 # Read in default attribute list
 with open('restaurant_attributes.txt', 'r') as f:
     attributes = [line.strip() for line in f]
 
 # Main function to scrape restaurant meta data
-def restaurant_metadata(shop_id='494380', full =False, include=attributes, return_df=True):
-    session = requests.Session()
-    session.headers.update({'user-agent':'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.99 Mobile Safari/537.36'})
+def restaurant_metadata(shop_id, full =False, return_df=True):
     if type(shop_id) is str:
-        try:
-            url = f'https://www.openrice.com/en/hongkong/restaurant/{shop_id}'
-            resp = session.get(url)
-            if resp.status_code == 404:
-                raise ValueError('Invalid shop id.')
-                return None
-            soup = bs(resp.text, features="lxml")
-            api_string = get_api_string(soup)
-            resp = session.get(f'https://www.openrice.com/api/pois?uilang=en&{api_string}')
-            soup = bs(resp.text)
-            j_data = json.loads(resp.text)
-            results = j_data['searchResult']['paginationResult']['results']
-            matching_ix = [i for i, dict_ in enumerate(results) if dict_['poiId']==int(shop_id)][0]
-            result = results[matching_ix]
-            if full:
-                return result
-            else:
-                return trim_json(result, attributes)
-        except:
-            print('Error at: ')
-    elif type(shop_id) is list:
-        output = []
-        errors = []
-        for shop in shop_id:
-            try:
-                url = f'https://www.openrice.com/en/hongkong/restaurant/{shop}'
-                resp = session.get(url)
-                if resp.status_code == 404:
-                    raise ValueError('Invalid shop id.')
-                    return None
-                soup = bs(resp.text, features="lxml")
-                api_string = get_api_string(soup)
-                resp = session.get(f'https://www.openrice.com/api/pois?uilang=en&{api_string}')
-                soup = bs(resp.text, features="lxml")
-                j_data = json.loads(resp.text)
-                results = j_data['searchResult']['paginationResult']['results']
-                matching_ix = [i for i, dict_ in enumerate(results) if dict_['poiId']==int(shop)][0]
-                result = results[matching_ix]
-                if full:
-                    output.append(result)
-                else:
-                    output.append(trim_json(result, attributes))
-            except:
-                errors.append(shop)
+        result = get_metadata(shop_id=shop_id, full=full)
+        return result
+    elif type(shop_id) is list: # parallelization for multiple restaurants 
+        set_start_method('spawn')
+        with Pool(cpu_count()) as p:
+            result = p.map(partial(get_metadata, full=full), shop_id)
+        p.close()
+        result = [i for i in result if type(i) is dict]
         if return_df:
-            print(f'Error at: {errors}') if len(errors) > 0 else None
-            return pd.DataFrame.from_dict(output)
-        print(f'Error at: {errors}') if len(errors) > 0 else None
-        return output
+            return pd.DataFrame.from_dict(result)
+        return result
 
+
+def get_metadata(shop_id, full=False):
+    try:
+        session = requests.Session()
+        session.headers.update(
+            {'user-agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.99 Mobile Safari/537.36'})
+        url = f'https://www.openrice.com/en/hongkong/restaurant/{shop_id}'
+        resp = session.get(url)
+        if resp.status_code == 404:
+            raise ValueError('Invalid shop id.')
+            return None
+        soup = bs(resp.text, features="lxml")
+        api_string = get_api_string(soup)
+        resp = session.get(
+            f'https://www.openrice.com/api/pois?uilang=en&{api_string}')
+        soup = bs(resp.text, features="lxml")
+        j_data = json.loads(resp.text)
+        results = j_data['searchResult']['paginationResult']['results']
+        matching_ix = [i for i, dict_ in enumerate(
+            results) if dict_['poiId'] == int(shop_id)][0]
+        result = results[matching_ix]
+        if full:
+            return result
+        else:
+            return trim_json(result, attributes)
+    except:
+        print(f'Error at restaurant: {shop_id}')
 
 # Since the API does not support direct query of restaurant id, we'll have to query the corresponding restaurant by various conditions
 def get_api_string(soup):
